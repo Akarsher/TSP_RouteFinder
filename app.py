@@ -4,8 +4,8 @@ from typing import List, Tuple
 from flask import Flask, render_template, request, redirect, url_for, flash
 from dotenv import load_dotenv
 import folium
-from googlemaps.convert import decode_polyline
 import requests
+import polyline
 
 from tsp_solver import solve_tsp_held_karp
 from google_distance import build_distance_matrix
@@ -46,32 +46,51 @@ def parse_coordinates(form) -> List[Tuple[float, float]]:
 def add_markers_in_order(m: folium.Map, coords: List[Tuple[float, float]], order: List[int]):
     for visit_idx, node in enumerate(order[:-1], start=1):
         lat, lon = coords[node]
-        label = f"{visit_idx}. Point {node}"
-        folium.Marker([lat, lon], popup=label, tooltip=label).add_to(m)
+        if visit_idx == 1:
+            # Start point
+            icon = folium.Icon(color="green", icon="play")
+            label = f"Start: ({lat:.4f}, {lon:.4f})"
+        else:
+            # Intermediate stop
+            icon = folium.Icon(color="blue", icon="flag")
+            label = f"Stop {visit_idx}: ({lat:.4f}, {lon:.4f})"
+        folium.Marker([lat, lon], popup=label, tooltip=label, icon=icon).add_to(m)
+
+    # Closing node = back to start
     last_node = order[-1]
     lat, lon = coords[last_node]
-    folium.CircleMarker([lat, lon], radius=6).add_to(m)
+    folium.Marker(
+        [lat, lon],
+        popup="Return to Start",
+        tooltip="Return to Start",
+        icon=folium.Icon(color="red", icon="home")
+    ).add_to(m)
 
 
 def draw_directions_polyline(m: folium.Map, start: Tuple[float, float], end: Tuple[float, float]):
-    """
-    Uses the legacy Directions API. Still works but may need upgrade later.
-    """
-    url = "https://maps.googleapis.com/maps/api/directions/json"
-    params = {
-        "origin": f"{start[0]},{start[1]}",
-        "destination": f"{end[0]},{end[1]}",
-        "mode": "driving",
-        "key": GOOGLE_API_KEY,
+    """Uses the new Routes API for driving path."""
+    url = f"https://routes.googleapis.com/directions/v2:computeRoutes"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_API_KEY,
+        "X-Goog-FieldMask": "routes.polyline.encodedPolyline"
     }
-    resp = requests.get(url, params=params)
-    data = resp.json()
-    if not data.get("routes"):
+    body = {
+        "origin": {"location": {"latLng": {"latitude": start[0], "longitude": start[1]}}},
+        "destination": {"location": {"latLng": {"latitude": end[0], "longitude": end[1]}}},
+        "travelMode": "DRIVE",
+    }
+
+    resp = requests.post(url, headers=headers, json=body)
+    if resp.status_code != 200:
         return
-    poly = data["routes"][0]["overview_polyline"]["points"]
-    pts = decode_polyline(poly)
-    path = [(p["lat"], p["lng"]) for p in pts]
-    folium.PolyLine(path, weight=4, opacity=0.8).add_to(m)
+    data = resp.json()
+    if "routes" not in data or not data["routes"]:
+        return
+
+    poly = data["routes"][0]["polyline"]["encodedPolyline"]
+    path = polyline.decode(poly)  # list of (lat, lon)
+    folium.PolyLine(path, weight=4, opacity=0.8, color="blue").add_to(m)
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -83,7 +102,7 @@ def index():
             flash(str(e), "error")
             return redirect(url_for("index"))
 
-        # Build driving distance matrix (km) via Routes API
+        # Build driving distance matrix (km)
         dist = build_distance_matrix(coords)
 
         # Check for unreachable pairs
@@ -97,7 +116,7 @@ def index():
         total_cost_km, order = solve_tsp_held_karp(dist)
 
         # Build Folium map
-        m = folium.Map(location=coords[order[0]], zoom_start=12, control_scale=True)
+        m = folium.Map(location=coords[order[0]], zoom_start=10, control_scale=True)
 
         # Add markers
         add_markers_in_order(m, coords, order)
@@ -110,9 +129,12 @@ def index():
             draw_directions_polyline(m, coords[a], coords[b])
             leg_distances.append(dist[a][b])
 
+        # Auto-zoom map to fit all points
+        m.fit_bounds([coords[node] for node in order])
+
         route_html = m._repr_html_()
 
-        # Prepare itinerary
+        # Prepare itinerary INCLUDING return to start
         itinerary = [
             {
                 "visit": i + 1,
@@ -121,7 +143,7 @@ def index():
                 "lon": coords[node][1],
                 "leg_km": (0.0 if i == 0 else round(leg_distances[i - 1], 3))
             }
-            for i, node in enumerate(order[:-1])
+            for i, node in enumerate(order)
         ]
 
         return render_template(
