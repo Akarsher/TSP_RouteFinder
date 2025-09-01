@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Optimized Route • TSP Route Finder</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <div class="container">
+    <h1>Optimized Route</h1>
+    <p>Total Distance: {{ total_km }} km</p>
+
+    <div class="map" style="margin: 20px 0;">
+      {{ route_html|safe }}
+    </div>
+
+    <h2>Itinerary</h2>
+    <ol>
+      {% for item in itinerary %}
+        <li>
+          Visit {{ item.visit }} → Node {{ item.node }} ({{ item.lat }}, {{ item.lon }}) | Leg: {{ item.leg_km }} km
+        </li>
+      {% endfor %}
+    </ol>
+
+    <a href="{{ url_for('index') }}">🔙 Back</a>
+  </div>
+</body>
+</html>

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Route Finder</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Travelling Salesman Route Finder</h1>
+    <form method="POST" action="/">
+      <div id="coords">
+        <div class="coord">
+          <input type="text" name="lat[]" placeholder="Latitude" required>
+          <input type="text" name="lon[]" placeholder="Longitude" required>
+        </div>
+      </div>
+      <button type="button" onclick="addCoord()">Add Location</button>
+      <button type="submit">Find Optimal Route</button>
+    </form>
+  </div>
+
+  <script>
+    function addCoord() {
+      const div = document.createElement("div");
+      div.classList.add("coord");
+      div.innerHTML = `
+        <input type="text" name="lat[]" placeholder="Latitude" required>
+        <input type="text" name="lon[]" placeholder="Longitude" required>`;
+      document.getElementById("coords").appendChild(div);
+    }
+  </script>
+</body>
+</html>
